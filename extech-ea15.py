@@ -88,7 +88,9 @@ class ExtechEA15Serial:
         pass
 
     def open(self, dev_fn):
-        self.ser = serial.Serial(dev_fn, 9600, timeout=2)
+        # Timeout must be less than the interval between consecutive packets, ~ 1.5s
+        # and not so long that recording the timestamp is delay. 0.1s seems fine.
+        self.ser = serial.Serial(dev_fn, 9600, timeout=.1)
 
     def decode(self, buf, dt=None):
         d = {'dt': datetime.datetime.now() if dt is None else dt,
@@ -187,45 +189,54 @@ class ExtechEA15Serial:
             #  Most robust method may be to time duration between received
             #  bytes, looking for the 1s pause between messages.
 
-            pt = 0
+            packet_type = 0
             buf = b''
-            st = time.time()
+            st0 = time.time()
             while True:
-                if time.time() - st > 10:
+                c = self.ser.read()
+                et = time.time()
+
+                # There is a small delay, ~1.5s, between packets. When greater than the serial
+                # timeout, c will be empty. If buf is not empty, check if buf contains a possible
+                # packet.
+                if buf and not c:
+                    if buf[0] == 0x02 and buf[-1] == 0x03:
+                        if buf.startswith(b'\x02\x00\x55\xaa\x00'):
+                            if len(buf) == self.datalog_expected_ + 2:
+                                packet_type = 3
+                        else:
+                            if len(buf) == 9:
+                                packet_type = 1
+                            elif len(buf) == 5:
+                                packet_type = 2
                     break
-                buf2 = self.ser.read_until(b'\x03')
-                if buf2 == b'':
+
+                # Start over
+                if st0 - et > .5:
+                    print('Restarting')
+                    buf = b''
+                    continue
+                # Don't wait forever
+                elif st0 - et > 5:
+                    print('Aborting')
                     return None
-                buf += buf2
 
-                if buf[0] == 0x02 and buf[-1] == 0x03:
-                    if buf.startswith(b'\x02\x00\x55\xaa\x00'):
-                        if len(buf) == self.datalog_expected_ + 2:
-                            pt = 3
-                            break
-                    else:
-                        if len(buf) == 9:
-                            pt = 1
-                            break
-                        elif len(buf) == 5:
-                            pt = 2
-                            break
+                buf += c
 
-            if pt == 0:
+            if packet_type == 0:
                 print('Unable to decode:', buf)
             else:
-                if self.datalog_download_state_ == 1:
-                    time.sleep(.01)
-                    self.ser.write(b'\x41')
-                    self.ser.flush()
-                elif self.datalog_download_state_ == 2:
-                    time.sleep(.01)
-                    self.ser.write(b'\x55')
-                    self.ser.flush()
+                if packet_type == 1:
+                    if self.datalog_download_state_ == 1:
+                        self.ser.write(b'\x41')
+                        self.ser.flush()
+                    elif self.datalog_download_state_ == 2:
+                        self.ser.write(b'\x55')
+                        self.ser.flush()
 
-                if pt == 1:
+                if packet_type == 1:
                     return self.decode(buf)
-                elif pt == 2:
+                elif packet_type == 2:
                     # print('Datalog len packet:', buf)
                     # 02 00 8c 80 03 <= empty datalog 35968
                     # 02 00 8c 8c 03 <= 1 datalog entry 35980 12 = 1*5 + 1*7
@@ -240,7 +251,7 @@ class ExtechEA15Serial:
                     else:
                         print(f'Expecting {self.datalog_expected_} bytes from datalog')
                         self.datalog_download_state_ = 2
-                elif pt == 3:
+                elif packet_type == 3:
                     self.datalog_download_state_ = 0
                     self.datalog_expected_ = 0
                     return self.decode2(buf, datetime.datetime.now())
@@ -336,7 +347,7 @@ def main(dev_fn):
                 v = ea15.q.get()
                 print(decode(v))
 
-    if True:
+    if False:
         with ExtechEA15Threaded(dev_fn) as ea15:
             import time, random
 
@@ -366,7 +377,7 @@ def main(dev_fn):
 
                 time.sleep(.5)
 
-    if False:
+    if True:
         import matplotlib.pyplot as plt
 
         # If you encounter an error about not being able to use the TkInter matplotlib backend
@@ -415,5 +426,21 @@ def main(dev_fn):
                 time.sleep(.5)
 
 
+def find_dev(id_str):
+    import os
+
+    dn = '/dev/serial/by-id/'
+    for fn in os.listdir(dn):
+        if id_str in fn:
+            return os.path.join(dn, fn)
+
+    return ''
+
+
 if __name__ == "__main__":
-    main('/dev/ttyUSB0')
+    dev_fn = find_dev('usb-Prolific_Technology_Inc._USB-Serial_Controller')
+    if not dev_fn:
+        print('No device found')
+    else:
+        print('Using device:', dev_fn)
+        main(dev_fn)
