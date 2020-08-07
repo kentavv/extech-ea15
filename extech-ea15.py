@@ -175,37 +175,16 @@ class ExtechEA15Serial:
     datalog_download_state_ = 0
 
     def decode_one(self):
-        s = 0
-        buf = []
         while True:
             if self.download_datalog_ and self.datalog_download_state_ == 0:
                 self.datalog_download_state_ = 1
                 self.download_datalog_ = False
 
-            c = self.ser.read()
-            # There's also .read_until(0x03)
-            if c == b'':
+            buf = self.ser.read_until(b'\x03')
+            if buf == b'':
                 return None
 
-            if False:
-                if self.datalog_download_state_ == 1:
-                    if time.time() - s2_t > 2:
-                        print('a')
-                        self.ser.write(b'\x41')
-                        # ser.write(b'\x41')
-                        self.ser.flush()
-                        s2_t = time.time()
-                elif self.datalog_download_state_ == 2:
-                    print('b')
-                    self.ser.write(b'\x55')
-                    self.ser.flush()
-
-            if s == 0 and c[0] == 0x02:
-                s = 1
-                buf = c
-            elif s == 1 and c[0] == 0x03:
-                buf += c
-
+            if buf[0] == 0x02 and buf[-1] == 0x03:
                 if self.datalog_download_state_ == 1:
                     time.sleep(.01)
                     self.ser.write(b'\x41')
@@ -218,7 +197,7 @@ class ExtechEA15Serial:
                 if len(buf) == 9:
                     return self.decode(buf)
                 elif len(buf) == 5:
-                    # print(buf)
+                    # print('Datalog len packet:', buf)
                     # 02 00 8c 80 03 <= empty datalog 35968
                     # 02 00 8c 8c 03 <= 1 datalog entry 35980 12 = 1*5 + 1*7
                     # 02 00 8c 93 03 <= 2 datalog entries 35987 19 = 1*5 + 2*7
@@ -237,10 +216,8 @@ class ExtechEA15Serial:
                     return self.decode2(buf, datetime.datetime.now())
                 else:
                     print('Unable to decode:', buf)
-
-                buf = b''
-            elif s == 1:
-                buf += c
+            else:
+                print('buf:', buf)
 
     def decode_loop(self):
         while True:
@@ -356,10 +333,10 @@ def main(dev_fn):
                     v2_ = ea15.q2.get()
                     for j, v2 in enumerate(v2_):
                         sps, lst = v2
-                        print(f'Datalog set {j} with {len(lst)} records, sampled every {sps} seconds')
+                        print(f'Datalog set {j + 1} with {len(lst)} records, sampled every {sps} seconds')
                         for i, v in enumerate(lst):
                             v['dt'] = i * sps
-                            print(f'{i:04d} : {decode(v)}')
+                            print(f'{j + 1:02d} : {i + 1:04d} : {decode(v)}')
 
                 time.sleep(.5)
 
