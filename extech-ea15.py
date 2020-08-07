@@ -285,6 +285,7 @@ def main(dev_fn):
                 while not ea15.q.empty():
                     v = ea15.q.get()
                     print(decode(v))
+                # import queue
                 # try:
                 #     v = ea15.q.get(timeout=.05)
                 #     print('dequeued', v)
