@@ -184,11 +184,6 @@ class ExtechEA15Serial:
                 self.datalog_download_state_ = 1
                 self.download_datalog_ = False
 
-            # TODO Make the tokenization of the serial stream more robust.
-            #  0x03 can occur a message. 0x03 0x02 can also occur.
-            #  Most robust method may be to time duration between received
-            #  bytes, looking for the 1s pause between messages.
-
             packet_type = 0
             buf = b''
             st0 = time.time()
@@ -196,9 +191,9 @@ class ExtechEA15Serial:
                 c = self.ser.read()
                 et = time.time()
 
-                # There is a small delay, ~1.5s, between packets. When greater than the serial
-                # timeout, c will be empty. If buf is not empty, check if buf contains a possible
-                # packet.
+                # There is a small delay, ~1.5s, between packets. Use the delay to tokenize the
+                # serial stream. When the delay greater than the serial timeout, c will be empty.
+                # If buf is not empty, check if buf may contain a packet.
                 if buf and not c:
                     if buf[0] == 0x02 and buf[-1] == 0x03:
                         if buf.startswith(b'\x02\x00\x55\xaa\x00'):
