@@ -174,6 +174,7 @@ class ExtechEA15Serial:
         return all_lst
 
     datalog_download_state_ = 0
+    datalog_expected_ = 0
 
     def decode_one(self):
         while True:
@@ -181,11 +182,38 @@ class ExtechEA15Serial:
                 self.datalog_download_state_ = 1
                 self.download_datalog_ = False
 
-            buf = self.ser.read_until(b'\x03')
-            if buf == b'':
-                return None
+            # TODO Make the tokenization of the serial stream more robust.
+            #  0x03 can occur a message. 0x03 0x02 can also occur.
+            #  Most robust method may be to time duration between received
+            #  bytes, looking for the 1s pause between messages.
 
-            if buf[0] == 0x02 and buf[-1] == 0x03:
+            pt = 0
+            buf = b''
+            st = time.time()
+            while True:
+                if time.time() - st > 10:
+                    break
+                buf2 = self.ser.read_until(b'\x03')
+                if buf2 == b'':
+                    return None
+                buf += buf2
+
+                if buf[0] == 0x02 and buf[-1] == 0x03:
+                    if buf.startswith(b'\x02\x00\x55\xaa\x00'):
+                        if len(buf) == self.datalog_expected_ + 2:
+                            pt = 3
+                            break
+                    else:
+                        if len(buf) == 9:
+                            pt = 1
+                            break
+                        elif len(buf) == 5:
+                            pt = 2
+                            break
+
+            if pt == 0:
+                print('Unable to decode:', buf)
+            else:
                 if self.datalog_download_state_ == 1:
                     time.sleep(.01)
                     self.ser.write(b'\x41')
@@ -195,9 +223,9 @@ class ExtechEA15Serial:
                     self.ser.write(b'\x55')
                     self.ser.flush()
 
-                if len(buf) == 9:
+                if pt == 1:
                     return self.decode(buf)
-                elif len(buf) == 5:
+                elif pt == 2:
                     # print('Datalog len packet:', buf)
                     # 02 00 8c 80 03 <= empty datalog 35968
                     # 02 00 8c 8c 03 <= 1 datalog entry 35980 12 = 1*5 + 1*7
@@ -205,20 +233,17 @@ class ExtechEA15Serial:
                     # 02 00 8c a1 03 <= 4 datalog entries 36001 33 = 1*5 + 4*7
                     # 02 00 8c c9 03 <= 2 sets with 1 and 8 records 36041 73 = 2*5 + 9*7
                     # 02 00 8d 57 03 <= 30 datalog entries 36183 215 = 1*5 + 30*7
-                    n = buf[2] * 256 + buf[3] - 0x8c80
-                    if n == 0:
+                    self.datalog_expected_ = buf[2] * 256 + buf[3] - 0x8c80
+                    if self.datalog_expected_ == 0:
                         print(f'Datalog is empty')
                         self.datalog_download_state_ = 0
                     else:
-                        print(f'Expecting {n} bytes from datalog')
+                        print(f'Expecting {self.datalog_expected_} bytes from datalog')
                         self.datalog_download_state_ = 2
-                elif buf.startswith(b'\x02\x00\x55\xaa\x00'):
+                elif pt == 3:
                     self.datalog_download_state_ = 0
+                    self.datalog_expected_ = 0
                     return self.decode2(buf, datetime.datetime.now())
-                else:
-                    print('Unable to decode:', buf)
-            else:
-                print('buf:', buf)
 
     def decode_loop(self):
         while True:
@@ -311,7 +336,7 @@ def main(dev_fn):
                 v = ea15.q.get()
                 print(decode(v))
 
-    if False:
+    if True:
         with ExtechEA15Threaded(dev_fn) as ea15:
             import time, random
 
@@ -341,7 +366,7 @@ def main(dev_fn):
 
                 time.sleep(.5)
 
-    if True:
+    if False:
         import matplotlib.pyplot as plt
 
         # If you encounter an error about not being able to use the TkInter matplotlib backend
