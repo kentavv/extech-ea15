@@ -69,7 +69,7 @@ class Temperature:
         return v + 273.15
 
 
-class ExtechEA15:
+class ExtechEA15Serial:
     ser = None
     download_datalog_ = False
 
@@ -198,7 +198,7 @@ class ExtechEA15:
         self.download_datalog_ = True
 
 
-class ExtechEA15b:
+class ExtechEA15Threaded:
     q = None
     q2 = None
     q3 = None
@@ -211,7 +211,7 @@ class ExtechEA15b:
         self.q2 = mp.Queue()
         self.q3 = mp.Queue()
         self.dev_fn_ = dev_fn
-        self.ea15 = ExtechEA15(dev_fn)
+        self.ea15 = ExtechEA15Serial(dev_fn)
 
     def __del__(self):
         pass
@@ -257,20 +257,20 @@ def main(dev_fn):
     # Below are a few different ways to use the classes
 
     if False:
-        with ExtechEA15(dev_fn) as ea15:
+        with ExtechEA15Serial(dev_fn) as ea15:
             ea15.decode_loop()
 
     if False:
-        with ExtechEA15(dev_fn) as ea15:
+        with ExtechEA15Serial(dev_fn) as ea15:
             for i in range(3):
                 print(i, ea15.decode_one())
 
     if False:
-        ea15 = ExtechEA15(dev_fn)
+        ea15 = ExtechEA15Serial(dev_fn)
         print(ea15.decode_one())
 
     if False:
-        ea15 = ExtechEA15b(dev_fn)
+        ea15 = ExtechEA15Threaded(dev_fn)
         ea15.run()
         while True:
             while not ea15.q.empty():
@@ -278,7 +278,7 @@ def main(dev_fn):
                 print(decode(v))
 
     if True:
-        with ExtechEA15b(dev_fn) as ea15:
+        with ExtechEA15Threaded(dev_fn) as ea15:
             import time, random
 
             while True:
