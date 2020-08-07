@@ -370,6 +370,9 @@ def main(dev_fn):
                 while not ea15.q.empty():
                     v = ea15.q.get()
                     print(decode(v))
+                    if not v['valid']:
+                        continue
+
                     y1 += [v['t1'].C()]
                     y2 += [v['t2'].C()]
                     if x == []:
