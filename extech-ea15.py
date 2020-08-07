@@ -17,6 +17,7 @@
 
 import datetime
 import multiprocessing as mp
+import time
 
 import serial
 
@@ -129,59 +130,113 @@ class ExtechEA15Serial:
         return d2
 
     def decode2(self, buf, start_dt):
+        if not (buf[0] == 0x02 and buf[-1] == 0x03):
+            return []
+
+        all_lst = []
+
+        i = 1
+        s = 0
+        sps = 0
         lst = []
+        marker = b'\x00\x55\xaa\x00'
+        while True:
+            if s == 0:
+                if len(buf) <= i + 5:
+                    break
+                if buf[i:i + 4] == marker:
+                    s = 1
+                    sps = buf[i + 4]
+                    i += 5
+                else:
+                    i += 1
+            else:
+                if len(buf) <= i + 7:
+                    break
+                if buf[i:i + 4] == marker:
+                    all_lst += [(sps, lst)]
+                    lst = []
+                    sps = buf[i + 4]
+                    i += 5
+                else:
+                    bb = buf[i:i + 7]
+                    bb = b'\x02' + bb + b'\x03'
+                    lst += [self.decode(bb, start_dt + datetime.timedelta(seconds=i * sps))]
+                    i += 7
 
-        if not (buf[0] == 0x02 and buf[-1] == 0x03 and ((len(buf) - 2 - 3 - 2) % 7 == 0)):
-            return 0, lst
+        if i + 1 != len(buf):
+            print(f'Truncated download: {i + 1} {len(buf)}')
 
-        a = buf[1]
-        b = buf[2] * 0xff + buf[3]
-        c = buf[4]
-        sps = buf[5]
+        if lst:
+            all_lst += [(sps, lst)]
 
-        for i, s in enumerate(range(6, len(buf) - 1, 7)):
-            bb = buf[s:s + 7]
-            bb = b'\x02' + bb + b'\x03'
-            lst += [self.decode(bb, start_dt + datetime.timedelta(seconds=i * sps))]
+        return all_lst
 
-        return sps, lst
+    datalog_download_state_ = 0
 
     def decode_one(self):
         s = 0
-        s2 = 0
         buf = []
         while True:
-            if self.download_datalog_ and s2 == 0:
-                s2 = 1
+            if self.download_datalog_ and self.datalog_download_state_ == 0:
+                self.datalog_download_state_ = 1
+                self.download_datalog_ = False
 
             c = self.ser.read()
             # There's also .read_until(0x03)
             if c == b'':
                 return None
 
-            if s2 == 1:
-                self.ser.write(b'\x41\x41')
-                # ser.write(b'\x41')
-                self.ser.flush()
-            elif s2 == 2:
-                self.ser.write(b'\x55\x55')
-                self.ser.flush()
+            if False:
+                if self.datalog_download_state_ == 1:
+                    if time.time() - s2_t > 2:
+                        print('a')
+                        self.ser.write(b'\x41')
+                        # ser.write(b'\x41')
+                        self.ser.flush()
+                        s2_t = time.time()
+                elif self.datalog_download_state_ == 2:
+                    print('b')
+                    self.ser.write(b'\x55')
+                    self.ser.flush()
 
             if s == 0 and c[0] == 0x02:
                 s = 1
                 buf = c
             elif s == 1 and c[0] == 0x03:
                 buf += c
+
+                if self.datalog_download_state_ == 1:
+                    time.sleep(.01)
+                    self.ser.write(b'\x41')
+                    self.ser.flush()
+                elif self.datalog_download_state_ == 2:
+                    time.sleep(.01)
+                    self.ser.write(b'\x55')
+                    self.ser.flush()
+
                 if len(buf) == 9:
                     return self.decode(buf)
-                    # if s2 == 1:
-                    #     s2 = 2
                 elif len(buf) == 5:
-                    print(buf)
-                    s2 = 2
-                elif s2 in [1, 2]:
+                    # print(buf)
+                    # 02 00 8c 80 03 <= empty datalog 35968
+                    # 02 00 8c 8c 03 <= 1 datalog entry 35980 12 = 1*5 + 1*7
+                    # 02 00 8c 93 03 <= 2 datalog entries 35987 19 = 1*5 + 2*7
+                    # 02 00 8c a1 03 <= 4 datalog entries 36001 33 = 1*5 + 4*7
+                    # 02 00 8c c9 03 <= 2 sets with 1 and 8 records 36041 73 = 2*5 + 9*7
+                    # 02 00 8d 57 03 <= 30 datalog entries 36183 215 = 1*5 + 30*7
+                    n = buf[2] * 256 + buf[3] - 0x8c80
+                    if n == 0:
+                        print(f'Datalog is empty')
+                        self.datalog_download_state_ = 0
+                    else:
+                        print(f'Expecting {n} bytes from datalog')
+                        self.datalog_download_state_ = 2
+                elif buf.startswith(b'\x02\x00\x55\xaa\x00'):
+                    self.datalog_download_state_ = 0
                     return self.decode2(buf, datetime.datetime.now())
-                    s2 = 0
+                else:
+                    print('Unable to decode:', buf)
 
                 buf = b''
             elif s == 1:
@@ -194,8 +249,9 @@ class ExtechEA15Serial:
                 continue
             print(v)
 
-    def download_catalog(self):
-        self.download_datalog_ = True
+    def download_datalog(self):
+        if self.datalog_download_state_ == 0:
+            self.download_datalog_ = True
 
 
 class ExtechEA15Threaded:
@@ -236,14 +292,14 @@ class ExtechEA15Threaded:
             if not self.q3.empty():
                 s = self.q3.get()
                 if s == 'Datalog':
-                    self.ea15.download_catalog()
+                    self.ea15.download_datalog()
 
             v = self.ea15.decode_one()
             if v is None:
                 pass
             elif isinstance(v, dict):
                 self.q.put(v)
-            elif isinstance(v, tuple):
+            elif isinstance(v, list):
                 self.q2.put(v)
 
     def download_datalog(self):
@@ -295,13 +351,15 @@ def main(dev_fn):
                 if random.random() < .05:
                     print('Requesting datalog download')
                     ea15.download_datalog()
+
                 while not ea15.q2.empty():
-                    v2 = ea15.q2.get()
-                    sps, lst = v2
-                    print(f'Datalog with {len(lst)} records, sampled every {sps} seconds')
-                    for i, v in enumerate(lst):
-                        v['dt'] = i * sps
-                        print(f'{i:04d} : {decode(v)}')
+                    v2_ = ea15.q2.get()
+                    for j, v2 in enumerate(v2_):
+                        sps, lst = v2
+                        print(f'Datalog set {j} with {len(lst)} records, sampled every {sps} seconds')
+                        for i, v in enumerate(lst):
+                            v['dt'] = i * sps
+                            print(f'{i:04d} : {decode(v)}')
 
                 time.sleep(.5)
 
