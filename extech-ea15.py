@@ -78,7 +78,8 @@ class ExtechEA15Serial:
         self.open(dev_fn)
 
     def __del__(self):
-        self.ser.close()
+        if self.ser is not None:
+            self.ser.close()
 
     def __enter__(self):
         return self
@@ -310,7 +311,7 @@ def main(dev_fn):
                 v = ea15.q.get()
                 print(decode(v))
 
-    if True:
+    if False:
         with ExtechEA15Threaded(dev_fn) as ea15:
             import time, random
 
@@ -337,6 +338,51 @@ def main(dev_fn):
                         for i, v in enumerate(lst):
                             v['dt'] = i * sps
                             print(f'{j + 1:02d} : {i + 1:04d} : {decode(v)}')
+
+                time.sleep(.5)
+
+    if True:
+        import matplotlib.pyplot as plt
+
+        # If you encounter an error about not being able to use the TkInter matplotlib backend
+        # or unable to load the tkinter module, try the following. (TkInter cannot be installed
+        # by pipenv.)
+        #   sudo apt-get install python3-tk
+
+        plt.ion()
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        x = []
+        y1 = []
+        y2 = []
+        line1, = ax.plot(x, y1, 'r-', label='T1')  # Returns a tuple of line objects, thus the comma
+        line2, = ax.plot(x, y2, 'b-', label='T2')  # Returns a tuple of line objects, thus the comma
+        ax.set_xlabel('Time [s]')
+        ax.set_ylabel('Temperature [C]')
+        plt.legend()
+
+        with ExtechEA15Threaded(dev_fn) as ea15:
+            import time, random
+
+            t0 = 0
+            while True:
+                while not ea15.q.empty():
+                    v = ea15.q.get()
+                    print(decode(v))
+                    y1 += [v['t1'].C()]
+                    y2 += [v['t2'].C()]
+                    if x == []:
+                        t0 = v['dt']
+                    x += [(v['dt'] - t0).total_seconds()]
+                    line1.set_xdata(x)
+                    line1.set_ydata(y1)
+                    line2.set_xdata(x)
+                    line2.set_ydata(y2)
+                    ax.relim()
+                    ax.autoscale_view()
+                    fig.canvas.draw()
+                    fig.canvas.flush_events()
 
                 time.sleep(.5)
 
