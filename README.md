@@ -1,9 +1,9 @@
 # extech-ea15
 Decode temperature measurements from an Extech EA15 thermocouple data logging thermometer. There's a good chance that the related thermometers, even with different number of probe inputs, have a similar protocol. Probably only need to change the number of measurements sent in each packet. I'm willing to add support for additional Extech thermometers sent to me to examine.
 
-To disable the instrument turning off after 30 minutes of inactivity, hold the Enter key while turning power on or enable either the data logging or min-max mode. Chaning the mode is the only way to have a positive indication that auto power off is disabled.
+To disable the instrument turning off after 30 minutes of inactivity, hold the Enter key while turning power on or enable either the data logging or min-max mode. (Changing the mode is the only way to have a positive indication that auto power off is disabled.)
 
-The temperature unit selected on the data logger is read, but to ensure uniformity, especially within downloaded measurements, all measurements are converted to C. Without doing this, changing the units during the data logging would cause the downloaded results to have multiple units. (Might be fine, and preferred, and could be used to flag sections of the recorded data at the instrument.)
+The temperature unit selected on the data logger is read, but to ensure uniformity, especially within downloaded measurements, all measurements are converted to C. Without doing this, changing the units during the data logging would cause the downloaded results to have multiple units. (Preserving the original units moght be preferred, and could be used to flag sections of the recorded data at the instrument.)
 
 The data logger only reports the logging interval. The time of the measurements are not recorded. One is expected to write down the starting time. The timestamps on the downloaded data can then be shifted to the start time.
 
