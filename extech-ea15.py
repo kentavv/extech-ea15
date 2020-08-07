@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 
 import datetime
+import multiprocessing as mp
+import queue
 
 import serial
 
@@ -121,13 +123,65 @@ class ExtechEA15:
                 continue
             print(v)
 
-    def download_datalog(self):
+    def download_catalog(self):
         self.download_datalog_ = True
 
 
+class ExtechEA15b:
+    q = None
+    q2 = None
+    q3 = None
+    ea15 = None
+    download_datalog_ = False
+    dev_fn_ = ''
+
+    def __init__(self, dev_fn=''):
+        self.q = mp.Queue()
+        self.q2 = mp.Queue()
+        self.q3 = mp.Queue()
+        self.dev_fn_ = dev_fn
+        self.ea15 = ExtechEA15(dev_fn)
+
+    def __del__(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, tb):
+        pass
+
+    def open(self, dev_fn):
+        self.ea15.open(dev_fn)
+
+    def run(self):
+        p = mp.Process(target=self.main, args=(self,))
+        p.start()
+
+    def main(self_, self):
+        # self.ea15 = ExtechEA15(self.dev_fn_)
+        while True:
+            if not self.q3.empty():
+                print('hi')
+                s = self.q3.get()
+                if s == 'Datalog':
+                    self.ea15.download_catalog()
+
+            v = self.ea15.decode_one()
+            if v is None:
+                pass
+            elif isinstance(v, dict):
+                self.q.put(v)
+            elif isinstance(v, tuple):
+                self.q2.put(v)
+
+    def download_datalog(self):
+        self.q3.put('Datalog')
+
+
 def main(dev_fn):
-    with ExtechEA15(dev_fn) as ea15:
-        ea15.decode_loop()
+    # with ExtechEA15(dev_fn) as ea15:
+    #     ea15.decode_loop()
 
     # with ExtechEA15(dev_fn) as ea15:
     #     for i in range(3):
@@ -136,8 +190,19 @@ def main(dev_fn):
     # ea15 = ExtechEA15(dev_fn)
     # print(ea15.decode_one())
 
-    # ea15 = ExtechEA15(dev_fn)
-    # ea15.download_datalog_ = True
+    ea15 = ExtechEA15b(dev_fn)
+    ea15.run()
+
+    while True:
+        try:
+            v = ea15.q.get(timeout=.05)
+            print('dequeued')
+        except queue.Empty:
+            print('timeout')
+
+        ea15.download_datalog()
+        v2 = ea15.q2.get()
+        print('dequeued', v2)
 
 
 if __name__ == "__main__":
