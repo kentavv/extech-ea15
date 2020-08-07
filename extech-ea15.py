@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
 import serial
+import datetime
 
-def decode(buf):
-    d = { 't1': '',
+def decode(buf, dt=None):
+    d = { 'dt': datetime.datetime.now() if dt is None else dt,
+          't1': '',
           't1u': '',
           't2': '',
           't2u': '',
@@ -28,7 +30,7 @@ def decode(buf):
     return d
 
 
-def decode2(buf):
+def decode2(buf, start_dt):
     lst = []
 
     if not (buf[0] == 0x02 and buf[-1] == 0x03 and ((len(buf) - 2 - 3 - 2) % 7 == 0)):
@@ -39,15 +41,15 @@ def decode2(buf):
     c = buf[4]
     sps = buf[5]
 
-    for s in range(6, len(buf) - 1, 7):
+    for i, s in enumerate(range(6, len(buf) - 1, 7)):
         bb = buf[s:s+7]
         bb = b'\x02' + bb + b'\x03'
-        lst += [decode(bb)]
+        lst += [decode(bb, start_dt + datetime.timedelta(seconds=i * sps))]
 
     return sps, lst
 
-    
-with serial.Serial('/dev/ttyUSB0', 9600, timeout=2) as ser:
+
+def decode_loop(ser):
     s = 0
     s2 = 0
     buf = []
@@ -84,11 +86,19 @@ with serial.Serial('/dev/ttyUSB0', 9600, timeout=2) as ser:
                 print(buf)
                 s2 = 2
             elif s2 in [1, 2]:
-                print(decode2(buf))
+                print(decode2(buf, datetime.datetime.now()))
                 s2 = 0
 
             buf = b''
         elif s == 1:
             buf += c
 
+
+def main(dev_fn):
+    with serial.Serial(dev_fn, 9600, timeout=2) as ser:
+        decode_loop(ser)
+
+
+if __name__ == "__main__":
+    main('/dev/ttyUSB0')
 
